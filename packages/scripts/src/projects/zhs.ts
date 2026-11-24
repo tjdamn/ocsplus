@@ -2758,10 +2758,10 @@ function gxkWorkAndExam(
 		answerer: createCommonAnswerer({
 			titleTransform: () => titleTransform(undefined, request_index++),
 			optionsTransform: (elements, ctx) => {
-				if (ctx.type === 'completion') return '';
+				if (ctx.type === 'completion') return [];
 				const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => optionExtract(o));
 				return {
-					text: optResults.map((r: { text: string }) => r.text).join('\n'),
+					text: optResults.map((r: { text: string }) => r.text),
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
@@ -2959,6 +2959,7 @@ function xnkWork({ period, thread, answerSeparators }: CommonWorkOptions) {
 	(async () => {
 		while (next && worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			await $.sleep(1000);
 			next = getBtn();
 			next?.click();
@@ -3007,10 +3008,10 @@ function smartWork(remotePage: RemotePage | undefined, { period, thread, answerS
 		answerer: createCommonAnswerer({
 			titleTransform: (elements) => titleTransformWithImages(elements.title),
 			optionsTransform: (elements, ctx) => {
-				if (ctx.type === 'completion') return '';
+				if (ctx.type === 'completion') return [];
 				const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
 				return {
-					text: optResults.map((r: { text: string }) => r.text).join('\n'),
+					text: optResults.map((r: { text: string }) => r.text),
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
@@ -3091,6 +3092,7 @@ function smartWork(remotePage: RemotePage | undefined, { period, thread, answerS
 		let count = 0;
 		while (worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			next = getNextBtn();
 			if (!next) {
 				break;
@@ -3148,10 +3150,10 @@ function smartExam(remotePage: RemotePage | undefined, { period, thread, answerS
 		answerer: createCommonAnswerer({
 			titleTransform: (elements) => titleTransformWithImages(elements.title),
 			optionsTransform: (elements, ctx) => {
-				if (ctx.type === 'completion') return '';
+				if (ctx.type === 'completion') return [];
 				const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
 				return {
-					text: optResults.map((r: { text: string }) => r.text).join('\n'),
+					text: optResults.map((r: { text: string }) => r.text),
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
@@ -3235,6 +3237,7 @@ function smartExam(remotePage: RemotePage | undefined, { period, thread, answerS
 		let count = 0;
 		while (worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			next = getNextBtn();
 			if (!next) {
 				break;
@@ -3313,8 +3316,7 @@ function fusioncourseWork(remotePage: RemotePage | undefined, { period, thread, 
 			optionsTransform: (elements) =>
 				(elements.options ?? [])
 					.filter(Boolean)
-					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim())
-					.join('\n'),
+					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim()),
 			period
 		}),
 		work: {
@@ -3485,6 +3487,7 @@ function hikeWork(remotePage: RemotePage | undefined, { period, thread, answerSe
 
 		while (next && worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			next = getNextBtn();
 			if (next) {
 				await $.sleep(1000);
@@ -3548,8 +3551,7 @@ function hikeHomework(remotePage: RemotePage | undefined, { period, thread, answ
 			optionsTransform: (elements) =>
 				(elements.options ?? [])
 					.filter(Boolean)
-					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim())
-					.join('\n'),
+					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim()),
 			period
 		}),
 		work: {

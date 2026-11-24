@@ -21,8 +21,9 @@ function cleanOutput() {
 	return del([distPath, '../lib'], { force: true });
 }
 
-async function testResolver() {
+async function testAnswers() {
 	await execOut('node --import tsx ../tests/resolver.test.ts');
+	await execOut('node --import tsx --test ../tests/deepseek.test.ts');
 }
 
 async function buildPackages() {
@@ -190,4 +191,4 @@ async function createUserJs() {
 }
 
 exports.createDevUserScript = createDevUserScript;
-exports.default = series(cleanOutput, testResolver, buildPackages, createUserJs);
+exports.default = series(cleanOutput, testAnswers, buildPackages, createUserJs);

@@ -56,11 +56,16 @@ export const CommonEvents = {
  * 从结果数组统计进度（搜索结果信息栏的唯一数据来源）。
  * 计数一律由结果数组派生，不单独存储，避免与结果数据不同步。
  */
-const count = (results: SimplifyWorkResult[]) => ({
-	total: results.length,
-	requested: results.filter((r) => r.requested).length,
-	resolved: results.filter((r) => r.resolved).length
-});
+const count = (results: SimplifyWorkResult[]) => {
+	const hasRequestFailure = (result: SimplifyWorkResult) => result.searchInfos.some((info) => info.requestFailed);
+	return {
+		total: results.length,
+		requested: results.filter((r) => r.requested).length,
+		filled: results.filter((r) => r.finish).length,
+		failed: results.filter((r) => !r.finish && hasRequestFailure(r)).length,
+		unfilled: results.filter((r) => r.resolved && !r.finish && !hasRequestFailure(r)).length
+	};
+};
 
 /**
  * 答题完成（finish === true）的结果自动写入题库缓存。
@@ -187,6 +192,26 @@ export const CommonProject = Project.create({
 					defaultValue: '设置 API Key',
 					attrs: { type: 'button', className: 'base-style-button' },
 					extra: { appConfigSync: false },
+					suffixSlot: () => {
+						const test = $ui.button('测试连接', { className: 'base-style-button-secondary' });
+						test.onclick = async () => {
+							test.disabled = true;
+							try {
+								const [result] = await requestDeepSeekAnswer(
+									{ type: 'single', title: '2 + 2 等于多少？', options: ['3', '4'] },
+									15
+								);
+								if (result.error) {
+									$message.error(result.error);
+								} else {
+									$message.success('DeepSeek 连接成功，已收到样题答复。');
+								}
+							} finally {
+								test.disabled = false;
+							}
+						};
+						return test;
+					},
 					onload() {
 						const updateButton = () => {
 							this.value = isDeepSeekConfigured() ? '更改或清除 API Key' : '设置 API Key';
@@ -223,7 +248,7 @@ export const CommonProject = Project.create({
 				upload: {
 					label: '答案提交方式（提交率）',
 					tag: 'select',
-					defaultValue: 80 as WorkUploadType,
+					defaultValue: 'save' as WorkUploadType,
 					options: [
 						[
 							'save',
@@ -659,7 +684,7 @@ export const CommonProject = Project.create({
 								/** 基础提示信息 */
 								const baseInfos = [
 									`已搜题: ${stats.requested}/${stats.total}`,
-									`已答题: ${stats.resolved}/${stats.total}`,
+									`已答题: ${stats.filled}/${stats.total}`,
 									'⚪ 白色序号：等待处理中',
 									'🔵 蓝边序号：已完成搜索',
 									'🔵 蓝色序号：已搜索已答题',
@@ -706,7 +731,14 @@ export const CommonProject = Project.create({
 								// 初始显示指定序号的结果
 								resultContainer.replaceChildren(createResult(results[this.cfg.currentResultIndex]));
 
-								container.replaceChildren(list, resultContainer);
+								const progress = h(
+									'div',
+									{ className: 'text-secondary' },
+									`已填 ${stats.filled}/${stats.total} · 请求失败 ${stats.failed} · 未填 ${stats.unfilled} · 未处理 ${
+										stats.total - stats.requested
+									}`
+								);
+								container.replaceChildren(progress, list, resultContainer);
 
 								/** 恢复高度 */
 								list.scrollTo({
@@ -856,13 +888,12 @@ export const CommonProject = Project.create({
 
 					if (value) {
 						const t = Date.now();
-						const { env, imageUrls } = await buildAnswererEnv({
+						const { env } = await buildAnswererEnv({
 							title: value,
 							enableImageOptimize: CommonProject.scripts.settings.cfg.imageOptimize
 						});
 						const infos = await requestDeepSeekAnswer(
 							env,
-							imageUrls,
 							CommonProject.scripts.settings.cfg.answerWrapperHandlerTimeout
 						);
 						// 耗时计算

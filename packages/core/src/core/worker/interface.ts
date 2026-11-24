@@ -86,6 +86,7 @@ export interface SimplifyWorkResult {
 		homepage?: SearchInformation['homepage'];
 		/** 题库搜索错误信息 */
 		error?: string;
+		requestFailed?: boolean;
 		/** 搜索结果 [题目，答案，额外数据] */
 		results: [string, string, object][];
 	}[];

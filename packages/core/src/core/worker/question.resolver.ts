@@ -1,3 +1,4 @@
+import type { IndexedChoices } from '../answer-wrapper';
 import { QuestionResolver, WorkContext } from './interface';
 import { resolveSingle, resolveMultiple, resolveJudgement, resolveCompletion, isJudgementOptions } from './resolvers';
 
@@ -12,6 +13,41 @@ export function createDefaultQuestionResolver<E>(
 	optionText?: (el: HTMLElement, i: number) => string
 ): Record<'single' | 'multiple' | 'completion' | 'judgement', QuestionResolver<E>> {
 	const toText = (o: HTMLElement, i: number) => (optionText ? optionText(o, i) : o.innerText);
+	const applyIndexedChoices = async (
+		type: 'single' | 'multiple',
+		infos: Parameters<QuestionResolver<E>>[0],
+		options: HTMLElement[],
+		handler: Parameters<QuestionResolver<E>>[2]
+	) => {
+		const choices = infos
+			.flatMap((info) => info.results)
+			.map((result) => (result.extra_data as { indexedChoices?: IndexedChoices } | undefined)?.indexedChoices)
+			.find((choice) => choice !== undefined);
+		if (!choices) {
+			return undefined;
+		}
+		const { count, indices } = choices;
+		if (
+			count !== options.length ||
+			!Array.isArray(indices) ||
+			indices.length === 0 ||
+			(type === 'single' && indices.length !== 1) ||
+			new Set(indices).size !== indices.length ||
+			indices.some((index) => !Number.isInteger(index) || index < 1 || !options[index - 1])
+		) {
+			return { finish: false, error: '答案编号与页面选项不匹配，请核对后重试。' };
+		}
+
+		const selected = [];
+		for (const index of indices) {
+			const option = options[index - 1];
+			const text = toText(option, index - 1);
+			await handler(type, text, option, ctx);
+			selected.push(text);
+		}
+		return type === 'single' ? { finish: true, option: selected[0] } : { finish: true, options: selected };
+	};
+
 	return {
 		/**
 		 * 单选题处理器
@@ -19,6 +55,9 @@ export function createDefaultQuestionResolver<E>(
 		 * 委托给 resolveSingle 纯函数，将 DOM 元素适配为字符串
 		 */
 		async single(infos, options, handler) {
+			const indexed = await applyIndexedChoices('single', infos, options, handler);
+			if (indexed) return indexed;
+
 			const optionTexts = options.map((o, i) => toText(o, i));
 
 			// 选项具备判断题性质时，直接走判断题处理逻辑
@@ -51,6 +90,9 @@ export function createDefaultQuestionResolver<E>(
 		 * 委托给 resolveMultiple 纯函数，将 DOM 元素适配为字符串
 		 */
 		async multiple(infos, options, handler) {
+			const indexed = await applyIndexedChoices('multiple', infos, options, handler);
+			if (indexed) return indexed;
+
 			const resultAnswers = infos.map((info) => info.results.map((res) => res.answer)).flat();
 			const optionTexts = options.map((o, i) => toText(o, i));
 

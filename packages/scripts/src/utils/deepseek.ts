@@ -1,5 +1,5 @@
 /* global GM_getValue, GM_setValue, GM_deleteValue, GM_xmlhttpRequest */
-import type { SearchInformation } from '@ocsjs/core';
+import type { IndexedChoices, SearchInformation } from '@ocsjs/core';
 import type { AnswererEnv } from './answerer-env';
 
 const API_KEY_STORAGE = 'deepseek.local.apiKey';
@@ -31,16 +31,27 @@ export function saveDeepSeekApiKey(value: string): void {
 	}
 }
 
-function requestCompletion(
-	apiKey: string,
-	userContent: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>,
-	timeoutSeconds: number
-): Promise<string> {
+const HTTP_ERRORS: Record<number, string> = {
+	400: 'DeepSeek API 拒绝了题目请求，请检查题目或图片格式。',
+	401: 'DeepSeek API Key 无效，请在全局设置重新填写。',
+	402: 'DeepSeek API 账户余额不足。',
+	413: '题目图片太大，超过 DeepSeek API 的请求限制。',
+	429: 'DeepSeek API 请求过于频繁，请稍后重试或增加搜题间隔。'
+};
+
+class DeepSeekHttpError extends Error {
+	constructor(readonly status: number) {
+		super(HTTP_ERRORS[status] ?? `DeepSeek API 请求失败（HTTP ${status}）。`);
+	}
+}
+
+type UserContent = string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+
+function requestCompletion(apiKey: string, userContent: UserContent, timeout: number): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const timeout = (Number(timeoutSeconds) || 120) * 1000;
-		const fail = (message: string) => {
+		const fail = (error: Error | string) => {
 			clearTimeout(timer);
-			reject(new Error(message));
+			reject(typeof error === 'string' ? new Error(error) : error);
 		};
 		const timer = setTimeout(() => {
 			fail('DeepSeek API 请求超时。');
@@ -71,14 +82,7 @@ function requestCompletion(
 					if (status === 200) {
 						resolve(responseText);
 					} else {
-						const messages: Record<number, string> = {
-							400: 'DeepSeek API 拒绝了题目请求，请检查题目或图片格式。',
-							401: 'DeepSeek API Key 无效，请在全局设置重新填写。',
-							402: 'DeepSeek API 账户余额不足。',
-							413: '题目图片太大，超过 DeepSeek API 的请求限制。',
-							429: 'DeepSeek API 请求过于频繁，请稍后重试或增加搜题间隔。'
-						};
-						fail(messages[status] ?? `DeepSeek API 请求失败（HTTP ${status}）。`);
+						fail(new DeepSeekHttpError(status));
 					}
 				},
 				onerror: () => fail('无法连接 DeepSeek API，请检查网络和脚本管理器的连接权限。'),
@@ -91,21 +95,38 @@ function requestCompletion(
 	});
 }
 
+async function requestWithRetry(apiKey: string, content: UserContent, timeoutSeconds: number): Promise<string> {
+	const timeout = Math.max(1, (Number(timeoutSeconds) || 120) * 1000);
+	const deadline = Date.now() + timeout;
+
+	try {
+		return await requestCompletion(apiKey, content, timeout);
+	} catch (error) {
+		const retryDelay = 1000;
+		if (!(error instanceof DeepSeekHttpError) || error.status !== 429 || deadline - Date.now() <= retryDelay) {
+			throw error;
+		}
+		await new Promise((resolve) => setTimeout(resolve, retryDelay));
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) throw error;
+		return requestCompletion(apiKey, content, remaining);
+	}
+}
+
 function parseAnswer(
 	response: string,
 	questionType: string,
 	options: string[],
-	imageUrls: string[],
 	blankCount?: number
-): string {
+): { answer: string; indexedChoices?: IndexedChoices } {
 	const choice = JSON.parse(response)?.choices?.[0];
 	if (choice?.finish_reason !== 'stop' || typeof choice.message?.content !== 'string') {
 		throw new Error('DeepSeek 未返回完整答案。');
 	}
 
 	const output = JSON.parse(choice.message.content);
-	if (typeof output?.judgement === 'boolean' && ['unknown', 'judgement', 'single'].includes(questionType)) {
-		return output.judgement ? '正确' : '错误';
+	if (typeof output?.judgement === 'boolean' && ['unknown', 'judgement'].includes(questionType)) {
+		return { answer: output.judgement ? '正确' : '错误' };
 	}
 
 	const indices: unknown[] = output?.choices;
@@ -118,16 +139,17 @@ function parseAnswer(
 		) {
 			throw new Error('DeepSeek 返回的选项编号无效。');
 		}
-		const answers = (indices as number[]).map((n) =>
-			options[n - 1].replace(/\[图片(\d+)\]/g, (match, index) => imageUrls[Number(index) - 1] ?? match)
-		);
-		return JSON.stringify(answers);
+		const selected = indices as number[];
+		return {
+			answer: JSON.stringify(selected.map((index) => options[index - 1])),
+			indexedChoices: { count: options.length, indices: selected }
+		};
 	}
 
 	const answers: unknown[] = output?.answers;
 	if (
 		Array.isArray(answers) &&
-		(answers.length === 0 || ['completion', 'unknown'].includes(questionType)) &&
+		(answers.length === 0 || questionType === 'completion' || (questionType === 'unknown' && options.length === 0)) &&
 		answers.every((answer) => typeof answer === 'string' && answer.trim())
 	) {
 		if (answers.length === 0) {
@@ -136,37 +158,34 @@ function parseAnswer(
 		if (blankCount && answers.length !== blankCount) {
 			throw new Error('DeepSeek 返回的答案数量与空位数量不一致。');
 		}
-		return JSON.stringify((answers as string[]).map((answer) => answer.trim()));
+		return { answer: JSON.stringify((answers as string[]).map((answer) => answer.trim())) };
 	}
 	throw new Error('DeepSeek 返回的答案格式与题型不匹配。');
 }
 
 export async function requestDeepSeekAnswer(
 	env: AnswererEnv,
-	imageUrls: string[],
 	timeoutSeconds: number,
 	context?: { blankCount?: number; cacheContext: string }
 ): Promise<SearchInformation[]> {
 	const info: SearchInformation = { name: 'DeepSeek', homepage: 'https://www.deepseek.com/', results: [] };
+	let receivedResponse = false;
 	try {
 		const apiKey = readApiKey();
 		if (!apiKey) {
+			info.stopWork = true;
 			throw new Error('请在「通用 → 全局设置」设置 DeepSeek API Key。');
 		}
 
-		const options =
-			env.type === 'completion'
-				? []
-				: (env.suggestion_options ?? env.options)
-						.split('\n')
-						.map((option) => option.trim())
-						.filter(Boolean);
+		const options = env.type === 'completion' || !env.options.some((option) => option.trim()) ? [] : env.options;
+		const displayOptions = options.length ? env.suggestion_options ?? options : [];
+
 		const blankCount =
 			env.type === 'completion' || (env.type === 'unknown' && options.length === 0) ? context?.blankCount : undefined;
 		const text = JSON.stringify({
 			题型: env.type,
 			题干: env.suggestion_title ?? env.title,
-			选项: options.map((option, index) => ({ 编号: index + 1, 内容: option })),
+			选项: displayOptions.map((option, index) => ({ 编号: index + 1, 内容: option })),
 			空位数: blankCount || undefined
 		});
 		const images = env.images ?? [];
@@ -179,14 +198,19 @@ export async function requestDeepSeekAnswer(
 					])
 			  ]
 			: text;
-		const response = await requestCompletion(apiKey, content, timeoutSeconds);
-		const answer = parseAnswer(response, env.type, options, imageUrls, blankCount);
+		const response = await requestWithRetry(apiKey, content, timeoutSeconds);
+		receivedResponse = true;
+		const { answer, indexedChoices } = parseAnswer(response, env.type, options, blankCount);
 		info.results.push({
 			question: env.title,
 			answer,
-			extra_data: { ai: true, deepSeekContext: context?.cacheContext }
+			extra_data: { ai: true, deepSeekContext: context?.cacheContext, ...(indexedChoices && { indexedChoices }) }
 		});
 	} catch (error) {
+		info.requestFailed = !receivedResponse;
+		if (error instanceof DeepSeekHttpError && [401, 402].includes(error.status)) {
+			info.stopWork = true;
+		}
 		info.error =
 			error instanceof SyntaxError
 				? 'DeepSeek 返回了无效的 JSON。'

@@ -147,7 +147,17 @@ async function main() {
 	// 使用 buildAnswererEnv 构建 env（与生产管线一致）
 	// 原 title / options 保留不动；图片 URL 会下载转 base64，写入新增字段
 	// images / suggestion_title / suggestion_options
-	const { env, imageUrls } = await buildAnswererEnv({ type, title, options, enableImageOptimize: imageOptimize });
+	const { env: question, imageUrls } = await buildAnswererEnv({
+		type,
+		title,
+		options: typeof options === 'string' ? options.split('\n') : options,
+		enableImageOptimize: imageOptimize
+	});
+	const env = {
+		...question,
+		options: question.options.join('\n'),
+		suggestion_options: question.suggestion_options?.join('\n')
+	};
 
 	// 输出 env 便于核对图片题优化的新增字段
 	const envPreview: Record<string, any> = { ...env };

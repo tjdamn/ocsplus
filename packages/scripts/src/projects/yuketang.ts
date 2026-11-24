@@ -908,9 +908,9 @@ function createYktAnswerWorker({ period, thread, redundanceWordsText, answerSepa
 				// 顺带解析题型写入上下文
 				ctx.type = parseYktQuestionType(elements.type?.[0]?.textContent ?? '');
 				if (ctx.type === 'completion') {
-					return '';
+					return [];
 				}
-				return (elements.options ?? []).map((o: HTMLElement) => optionText(o)).join('\n');
+				return (elements.options ?? []).map((o: HTMLElement) => optionText(o));
 			},
 			period
 		}),
@@ -1131,6 +1131,7 @@ async function runYktAnswerLoop(
 		}
 		try {
 			const results = await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			allResults.push(...results);
 			const finished = !!results[0]?.result?.finish;
 			// 平台切换题目不会保存答案，必须每题作答后立即提交

@@ -201,8 +201,10 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 			try {
 				/** 检查是否暂停中 */
 				if (this.isStop) {
-					await waitForContinuate(() => this.isStop);
+					await waitForContinuate(() => this.isStop && !this.isClose);
 				}
+
+				if (this.isClose) return;
 
 				/** 标记正在搜题并回调（供结果面板为该序号显示转圈等待动画） */
 				result.searching = true;
@@ -246,14 +248,26 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 			if (options?.enable_debug) {
 				console.log('搜题结果: ', ctx.searchInfos);
 			}
-			/** 回调 */
-			await this.opts.onResultsUpdate?.(results[index], index, results);
+			const failed = ctx.searchInfos.find((info) => info.error);
+			if (!result.error && !ctx.searchInfos.some((info) => info.results.length)) {
+				result.error = failed?.error;
+			}
+			const blocked = ctx.searchInfos.find((info) => info.stopWork);
+			if (blocked && !this.isClose) {
+				const reason = blocked.error ?? '答案服务需要重新配置。';
+				result.error = reason;
+				result.resolved = true;
+				result.result = { finish: false };
+				this.emit('close');
+				$message.error({ content: `${reason} 本轮已停止，可处理后重新开始。`, duration: 0 });
+			}
+			await this.opts.onResultsUpdate?.(result, index, results);
 		};
 
 		const waitForRequested = async (result: WorkResult<E>) => {
 			return new Promise<void>((resolve, reject) => {
 				const interval = setInterval(() => {
-					if (result?.requested === true) {
+					if (result.requested || this.isClose) {
 						clearInterval(interval);
 						clearTimeout(timeout);
 						resolve();
@@ -283,7 +297,7 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 				try {
 					/** 检查是否暂停中 */
 					if (this.isStop) {
-						await waitForContinuate(() => this.isStop);
+						await waitForContinuate(() => this.isStop && !this.isClose);
 					}
 					/** 等待搜题完毕 */
 					await waitForRequested(result);
@@ -291,8 +305,10 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 					// 超时错误
 				}
 
+				if (this.isClose) return;
+
 				try {
-					if (result.ctx && result.ctx.searchInfos.length !== 0) {
+					if (!result.error && result.ctx && result.ctx.searchInfos.length !== 0) {
 						/** 开始处理 */
 						if (typeof this.opts.work === 'object') {
 							if (result.ctx.elements.options) {
@@ -324,7 +340,7 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 					error = (err as any)?.message || err;
 				}
 
-				result.error = error;
+				result.error = error ?? res?.error;
 
 				/** 修改答题结果 */
 				result.result = res || { finish: false };
@@ -429,7 +445,7 @@ export class OCSWorker<E extends RawElements = RawElements> extends CommonEventE
 		callback: (finishedRate: number, uploadable: boolean) => void | Promise<void>;
 	}) {
 		const { results, type, callback } = options;
-		if (type !== 'nomove') {
+		if (!this.isClose && type !== 'nomove') {
 			let finished = 0;
 			for (const result of results) {
 				if (result.result?.finish) {
@@ -510,7 +526,8 @@ export class CustomOCSWorker extends CommonEventEmitter<WorkerEvents> {
 					name: i.name,
 					homepage: i.homepage,
 					results: i.results.map((r) => [r.question, r.answer, r.extra_data || {}]),
-					error: i.error
+					error: i.error,
+					requestFailed: i.requestFailed
 				}));
 				results[index].requested = true;
 				this.opts.onResultsUpdate?.(results[index], index, results);

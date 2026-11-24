@@ -811,10 +811,10 @@ function work({ period, thread, answerSeparators }: CommonWorkOptions) {
 			optionsTransform: (elements: any, ctx: any) => {
 				const type = getType(ctx.elements.options) || 'unknown';
 				ctx.type = type;
-				if (type === 'completion') return '';
+				if (type === 'completion') return [];
 				const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
 				return {
-					text: optResults.map((r: { text: string }) => r.text).join('\n'),
+					text: optResults.map((r: { text: string }) => r.text),
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
@@ -897,6 +897,7 @@ function work({ period, thread, answerSeparators }: CommonWorkOptions) {
 	(async () => {
 		while (next && worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			await $.sleep(1000);
 			next = getNextBtn();
 			if (next.style.display === 'none') {
@@ -976,7 +977,7 @@ function aiWork({ period, thread, answerSeparators }: CommonWorkOptions) {
 				ctx.type = getType(ctx.elements.options) || 'unknown';
 				const optResults = ctx.elements.options.map((o: any) => extractTextWithImages(o));
 				return {
-					text: optResults.map((r: { text: string }) => r.text).join('\n'),
+					text: optResults.map((r: { text: string }) => r.text),
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
@@ -1034,6 +1035,7 @@ function aiWork({ period, thread, answerSeparators }: CommonWorkOptions) {
 	(async () => {
 		while (next && worker.isClose === false) {
 			await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+			if (worker.isClose) break;
 			await $.sleep(1000);
 			next = getNextBtn();
 			if (next.getAttribute('disabled')) {

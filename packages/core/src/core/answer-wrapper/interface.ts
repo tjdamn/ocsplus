@@ -1,3 +1,10 @@
+export interface IndexedChoices {
+	/** 发送给答案提供方的页面选项数量 */
+	count: number;
+	/** 从 1 开始的选项编号 */
+	indices: number[];
+}
+
 /** 题目答案 */
 export interface Result {
 	question: string;
@@ -19,6 +26,10 @@ export interface SearchInformation {
 	data?: any;
 	/** 错误数据 */
 	error?: string;
+	/** 请求失败，尚未取得答案响应 */
+	requestFailed?: boolean;
+	/** 答案提供方遇到需要用户处理的错误，结束本轮答题 */
+	stopWork?: boolean;
 }
 
 /**

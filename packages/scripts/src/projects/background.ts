@@ -1,6 +1,6 @@
 import debounce from 'lodash/debounce';
 import { RemotePlaywright, request } from '@ocsjs/core';
-import type { SearchInformation, SimplifyWorkResult } from '@ocsjs/core';
+import type { IndexedChoices, SearchInformation, SimplifyWorkResult } from '@ocsjs/core';
 import { markdown } from '../utils/markdown';
 import {
 	$ui,
@@ -106,6 +106,7 @@ type QuestionCache = {
 	homepage: string;
 	ai?: boolean;
 	deepSeekContext?: string;
+	indexedChoices?: IndexedChoices;
 };
 
 /** 题库缓存单条大小上限：超过则不入库（异常巨型条目无缓存价值，且会放大 GM 全量序列化耗时） */
@@ -137,7 +138,11 @@ function mergeQuestionCaches(caches: QuestionCache[], items: QuestionCache[]) {
 		// 去重
 		if (
 			caches.find(
-				(c) => c.title === item.title && c.deepSeekContext === item.deepSeekContext && c.answer === item.answer
+				(c) =>
+					c.title === item.title &&
+					c.deepSeekContext === item.deepSeekContext &&
+					c.answer === item.answer &&
+					c.indexedChoices?.indices.join(',') === item.indexedChoices?.indices.join(',')
 			) === undefined
 		) {
 			caches.unshift(item);
@@ -168,7 +173,11 @@ function findInQuestionCaches(caches: QuestionCache[], title: string, deepSeekCo
 				name: cache.from,
 				homepage: cache.homepage,
 				results: [
-					{ answer: cache.answer, question: cache.title, extra_data: { ai: cache.ai, cache: true, deepSeekContext } }
+					{
+						answer: cache.answer,
+						question: cache.title,
+						extra_data: { ai: cache.ai, cache: true, deepSeekContext, indexedChoices: cache.indexedChoices }
+					}
 				]
 			});
 		}
@@ -372,14 +381,17 @@ export const BackgroundProject = Project.create({
 											i.results
 												.filter((res) => res[1])
 												.map(([question, answer, data]) => {
-													const extra = data as Pick<QuestionCache, 'ai' | 'deepSeekContext'> | undefined;
+													const extra = data as
+														| Pick<QuestionCache, 'ai' | 'deepSeekContext' | 'indexedChoices'>
+														| undefined;
 													return {
 														title: question || r.question,
 														answer,
 														from: i.name,
 														homepage: i.homepage || '',
 														ai: extra?.ai,
-														deepSeekContext: extra?.deepSeekContext
+														deepSeekContext: extra?.deepSeekContext,
+														indexedChoices: extra?.indexedChoices
 													};
 												})
 												.flat()

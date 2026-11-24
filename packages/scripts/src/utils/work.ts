@@ -243,6 +243,7 @@ export function commonWork(options: {
 			// 恢复答题视为重新开始工作（isWorkerWorking=true，气泡重新显示）
 			state.worker.on('continuate', () => emitState('start'));
 			state.worker.once('close', () => {
+				controlBtn.disabled = true;
 				emitState('close');
 				iframeControl?.dispose();
 			});
@@ -478,6 +479,7 @@ export function simplifyWorkResult(
 		searchInfos:
 			wr.ctx?.searchInfos.map((sr) => ({
 				error: sr.error,
+				requestFailed: sr.requestFailed,
 				name: sr.name,
 				homepage: sr.homepage,
 				results: sr.results.map((ans) => [ans.question, ans.answer, ans.extra_data || {}])
@@ -532,13 +534,13 @@ export const closeDeepSeekKeyMissingWarning = cors.defineTopFunction(() => {
 /**
  * 创建通用的 answerer 回调，封装搜题缓存、延迟、env 构建、AI 图片建议等公共逻辑
  * @param options.titleTransform 标题转换函数，接收 (elements, ctx)，返回字符串标题
- * @param options.optionsTransform 选项转换函数（可选），接收 (elements, ctx)，返回选项文本字符串；
- *   默认取 ctx.elements.options 的 innerText 拼接
+ * @param options.optionsTransform 选项转换函数（可选），接收 (elements, ctx)，返回每个选项对应一项的文本数组；
+ *   默认取 ctx.elements.options 的 innerText
  * @param options.period 搜题间隔（秒），默认 3
  */
 export function createCommonAnswerer(options: {
 	titleTransform: (elements: any, ctx: WorkContext<any>) => string | { text: string; images?: string[] };
-	optionsTransform?: (elements: any, ctx: WorkContext<any>) => string | { text: string; images?: string[] };
+	optionsTransform?: (elements: any, ctx: WorkContext<any>) => string[] | { text: string[]; images?: string[] };
 	period?: number;
 }) {
 	const normalize = (
@@ -559,33 +561,25 @@ export function createCommonAnswerer(options: {
 		}
 		const titleImages = titleResult.images;
 
-		const optResult = normalize(
-			options.optionsTransform
-				? options.optionsTransform(elements, ctx)
-				: (ctx.elements.options ?? [])
-						.filter((option): option is HTMLElement => Boolean(option))
-						.map((option) => option.innerText)
-						.join('\n')
-		);
+		const extractedOptions =
+			options.optionsTransform?.(elements, ctx) ??
+			(ctx.elements.options ?? []).map((option) => option?.innerText ?? '');
+		const { text: optionTexts, images: optionsImages } = Array.isArray(extractedOptions)
+			? { text: extractedOptions, images: undefined }
+			: extractedOptions;
 		const blankCount = (ctx.elements.textareas ?? ctx.elements.options)?.filter(Boolean).length;
 		const settings = CommonProject.scripts.settings.cfg;
 		const type =
-			(ctx.type === 'single' || !ctx.type) &&
-			isJudgementOptions(
-				optResult.text
-					.split('\n')
-					.map((option) => option.trim())
-					.filter(Boolean)
-			)
+			(ctx.type === 'single' || !ctx.type) && isJudgementOptions(optionTexts.map((option) => option.trim()))
 				? 'judgement'
 				: ctx.type;
-		const cacheContext = JSON.stringify([type, optResult.text, blankCount, settings.imageOptimize]);
+		const cacheContext = JSON.stringify([type, optionTexts, blankCount, settings.imageOptimize]);
 
 		return BackgroundProject.scripts.data.methods.searchAnswerInCaches(title, cacheContext, async () => {
 			await $.sleep((options.period ?? 3) * 1000);
 			const questionHasImages =
-				(titleImages?.length ?? 0) + (optResult.images?.length ?? 0) > 0 ||
-				[title, optResult.text].some((text) => text.search(IMAGE_URL_REGEX) !== -1);
+				(titleImages?.length ?? 0) + (optionsImages?.length ?? 0) > 0 ||
+				[title, ...optionTexts].some((text) => text.search(IMAGE_URL_REGEX) !== -1);
 			if (questionHasImages && !settings.imageOptimize && !imageOptimizeOffWarned) {
 				imageOptimizeOffWarned = true;
 				$message.warn({
@@ -596,9 +590,9 @@ export function createCommonAnswerer(options: {
 			const { env, imageUrls } = await buildAnswererEnv({
 				type,
 				title,
-				options: optResult.text,
+				options: optionTexts,
 				titleImages,
-				optionsImages: optResult.images,
+				optionsImages,
 				enableImageOptimize: settings.imageOptimize
 			});
 			if (questionHasImages && settings.imageOptimize && imageUrls.length === 0 && !imageConvertFailWarned) {
@@ -608,7 +602,7 @@ export function createCommonAnswerer(options: {
 					duration: 10
 				});
 			}
-			return requestDeepSeekAnswer(env, imageUrls, settings.answerWrapperHandlerTimeout, {
+			return requestDeepSeekAnswer(env, settings.answerWrapperHandlerTimeout, {
 				blankCount,
 				cacheContext
 			});

@@ -7,8 +7,8 @@ export interface ImageSuggestionResult {
 	urls: string[];
 	/** 原题标题中图片 URL 替换为 [图片N] 占位符后的文本（不含 base64） */
 	suggestion_title: string;
-	/** 原选项中图片 URL 替换为 [图片N] 占位符后的文本（不含 base64），无图片时为 undefined */
-	suggestion_options?: string;
+	/** 每个选项替换图片 URL 后的文本，顺序与原选项相同 */
+	suggestion_options?: string[];
 }
 
 /** 是否运行在 Node 环境（非浏览器 / 非油猴脚本） */
@@ -190,7 +190,7 @@ export const IMAGE_URL_REGEX = /https?:\/\/[^\s一-鿿＀-￯]+?\.(?:png|jpe?g|g
 
 export async function createImageSuggestion(
 	title: string,
-	options?: string,
+	options: string[] = [],
 	/** DOM 调用方可直接传入按文档顺序的标题图片 URL，跳过正则提取 */
 	titleImages?: string[],
 	/** DOM 调用方可直接传入按文档顺序的选项图片 URL，跳过正则提取 */
@@ -199,7 +199,10 @@ export async function createImageSuggestion(
 	// 收集标题和选项中的所有图片 URL，保持顺序
 	// 若调用方提供 images 数组则直接使用（DOM 遍历所得，跳过正则）；否则回退到正则提取（字符串输入场景）
 	const titleUrls = titleImages && titleImages.length ? titleImages.slice() : title.match(IMAGE_URL_REGEX) || [];
-	const optionUrls = optionImages && optionImages.length ? optionImages.slice() : options?.match(IMAGE_URL_REGEX) || [];
+	const optionUrls =
+		optionImages && optionImages.length
+			? optionImages.slice()
+			: options.flatMap((option) => option.match(IMAGE_URL_REGEX) || []);
 
 	if (titleUrls.length === 0 && optionUrls.length === 0) return undefined;
 
@@ -256,59 +259,35 @@ export async function createImageSuggestion(
 
 	if (images.length === 0) return undefined;
 
-	// 标题：URL 替换为 [图片N] 占位符（不含 base64）
-	let suggestionTitle = title;
-	for (const [url, placeholder] of placeholderMap) {
-		suggestionTitle = suggestionTitle.split(url).join(placeholder);
-	}
-
-	// 选项：URL 替换为 [图片N] 占位符（不含 base64），仅当选项含图片时返回
-	let suggestionOptions: string | undefined;
-	if (options) {
-		const hasOptionImages = optionUrls.some((url) => base64Map.has(url));
-		if (hasOptionImages) {
-			suggestionOptions = options;
-			for (const [url, placeholder] of placeholderMap) {
-				suggestionOptions = suggestionOptions!.split(url).join(placeholder);
-			}
+	const withImagePlaceholders = (text: string) => {
+		for (const [url, placeholder] of placeholderMap) {
+			text = text.split(url).join(placeholder);
 		}
-	}
+		return text;
+	};
 
 	return {
 		images,
 		urls,
-		suggestion_title: suggestionTitle,
-		...(suggestionOptions !== undefined ? { suggestion_options: suggestionOptions } : {})
+		suggestion_title: withImagePlaceholders(title),
+		suggestion_options: options.map(withImagePlaceholders)
 	};
-}
-
-/** 按行去重字符串，保持首次出现的顺序 */
-function dedupeLines(str: string): string {
-	const seen = new Set<string>();
-	const result: string[] = [];
-	for (const line of str.split('\n')) {
-		if (!seen.has(line)) {
-			seen.add(line);
-			result.push(line);
-		}
-	}
-	return result.join('\n');
 }
 
 export interface AnswererEnv {
 	type: string;
 	title: string;
-	options: string;
+	options: string[];
 	images?: string[];
 	suggestion_title?: string;
-	suggestion_options?: string;
+	suggestion_options?: string[];
 }
 
 export async function buildAnswererEnv(params: {
 	type?: string;
 	title: string;
-	/** 选项文本，支持字符串或字符串数组（数组会按行拼接为字符串） */
-	options?: string | string[];
+	/** 每个元素对应一个页面选项，保留顺序、换行和重复值 */
+	options?: string[];
 	/** DOM 调用方传入的标题图片 URL（跳过正则提取） */
 	titleImages?: string[];
 	/** DOM 调用方传入的选项图片 URL（跳过正则提取） */
@@ -319,18 +298,8 @@ export async function buildAnswererEnv(params: {
 	/** 与 env.images 严格同序的图片原始 URL（无图片时为空数组），供 [图片N] 还原直接使用 */
 	imageUrls: string[];
 }> {
-	// options 归一化为字符串：数组按行拼接，保证后续占位符替换与图片匹配均为字符串处理
-	const rawOptions = Array.isArray(params.options)
-		? params.options.filter((o) => o != null && o !== '').join('\n')
-		: params.options ?? '';
-	// options 按行去重（保持顺序）
-	const options = dedupeLines(rawOptions);
-	// 原题 title / options 始终保留，不做覆盖与修改
-	const env: AnswererEnv = {
-		type: params.type || 'unknown',
-		title: params.title,
-		options
-	};
+	const options = params.options ?? [];
+	const env: AnswererEnv = { type: params.type || 'unknown', title: params.title, options };
 	let imageUrls: string[] = [];
 	if (params.enableImageOptimize) {
 		const suggestion = await createImageSuggestion(params.title, options, params.titleImages, params.optionsImages);
@@ -339,9 +308,7 @@ export async function buildAnswererEnv(params: {
 			env.images = suggestion.images;
 			imageUrls = suggestion.urls;
 			env.suggestion_title = suggestion.suggestion_title;
-			if (suggestion.suggestion_options !== undefined) {
-				env.suggestion_options = dedupeLines(suggestion.suggestion_options);
-			}
+			env.suggestion_options = suggestion.suggestion_options;
 		}
 	}
 	return { env, imageUrls };

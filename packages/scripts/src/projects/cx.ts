@@ -1240,10 +1240,10 @@ function workOrExam(
 				const typeInput = elements.type?.[0] as HTMLInputElement;
 				const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
 				ctx.type = type as any;
-				if (type === 'completion') return '';
+				if (type === 'completion') return [];
 				const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
 				return {
-					text: optResults.map((r) => r.text).join('\n'),
+					text: optResults.map((r) => r.text),
 					images: optResults.flatMap((r) => r.images)
 				};
 			},
@@ -1377,6 +1377,7 @@ function workOrExam(
 				// 逐题切换后新渲染的加密文字需增量解密（映射表已缓存，毫秒级）
 				await ensureCxFontDecrypted();
 				await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+				if (worker.isClose) break;
 				$message.info({ content: '已完成，即将下一题', duration: 0 });
 				await $.sleep(3000);
 				next = getNextBtn();
@@ -2422,9 +2423,9 @@ const JobRunner = {
 					const typeInput = elements.type?.[0] as HTMLInputElement;
 					const type = (typeInput ? getQuestionType(parseInt(typeInput.value)) : undefined) || 'unknown';
 					ctx.type = type as any;
-					if (type === 'completion') return '';
+					if (type === 'completion') return [];
 					const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
-					return { text: optResults.map((r) => r.text).join('\n'), images: optResults.flatMap((r) => r.images) };
+					return { text: optResults.map((r) => r.text), images: optResults.flatMap((r) => r.images) };
 				},
 				period
 			}),
@@ -2594,7 +2595,18 @@ const JobRunner = {
 			}
 		});
 
+		const restorePanel = () => {
+			if (visual_state === 'minimize' && BackgroundProject.scripts.render.cfg.visual !== 'minimize') {
+				CORSUtils.panelMinimize();
+			}
+		};
+		worker.once('close', () => {
+			CommonEvents.emitWorkerStateChange('close');
+			restorePanel();
+		});
+
 		const results = await worker.doWork({ enable_debug: BackgroundProject.scripts.dev.cfg.enable_answerer_debug });
+		if (worker.isClose) return;
 		// 章节测试未使用 commonWork，这里手动触发状态更新
 		CommonEvents.emitWorkerStateChange('done');
 
@@ -2633,11 +2645,7 @@ const JobRunner = {
 			}
 		});
 
-		// 还原尺寸状态
-		if (visual_state === 'minimize' && BackgroundProject.scripts.render.cfg.visual !== 'minimize') {
-			CORSUtils.panelMinimize();
-		}
-
+		restorePanel();
 		worker.emit('done');
 	},
 	/**
