@@ -394,7 +394,7 @@ export const IcveMoocProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+						'自动答题前请在「通用 → 全局设置」设置 DeepSeek API Key。',
 						'可以搭配 “通用-在线搜题” 一起使用。',
 						'请手动进入作业考试页面才能使用自动答题。'
 					]).outerHTML
@@ -687,7 +687,7 @@ export const IcveMoocProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+						'自动答题前请在「通用 → 全局设置」设置 DeepSeek API Key。',
 						'可以搭配 “通用-在线搜题” 一起使用。',
 						'请手动进入作业考试页面才能使用自动答题。',
 						'自动答题时请勿切换题目，否则可能导致重复搜题或者脚本卡主！'
@@ -745,12 +745,10 @@ async function watchMedia() {
 	});
 }
 
-function work({ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions) {
+function work({ period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info('开始作业');
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
 	CommonProject.scripts.workResults.methods.init({ dynamic: true });
-
-	console.log({ answererWrappers, period, thread });
 
 	const titleTransformWithImages = (titles: (HTMLElement | undefined)[]) => {
 		const images: string[] = [];
@@ -820,7 +818,6 @@ function work({ answererWrappers, period, thread, answerSeparators }: CommonWork
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 		async work(ctx) {
@@ -920,12 +917,10 @@ function work({ answererWrappers, period, thread, answerSeparators }: CommonWork
 	return worker;
 }
 
-function aiWork({ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions) {
+function aiWork({ period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info('开始作业');
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
 	CommonProject.scripts.workResults.methods.init({ dynamic: true });
-
-	console.log({ answererWrappers, period, thread });
 
 	const titleTransform = (titles: (HTMLElement | undefined)[]): { text: string; images: string[] } => {
 		const images: string[] = [];
@@ -985,7 +980,6 @@ function aiWork({ answererWrappers, period, thread, answerSeparators }: CommonWo
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 

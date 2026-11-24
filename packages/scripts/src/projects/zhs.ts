@@ -2702,7 +2702,7 @@ function getPopupCaptcha() {
  */
 function gxkWorkAndExam(
 	workInfo: any,
-	{ answererWrappers, period, thread, stopSecondWhenFinish, redundanceWordsText, answerSeparators }: CommonWorkOptions
+	{ period, thread, stopSecondWhenFinish, redundanceWordsText, answerSeparators }: CommonWorkOptions
 ) {
 	CommonProject.scripts.workResults.methods.init({
 		questionPositionSyncHandlerType: 'zhs-gxk'
@@ -2765,7 +2765,6 @@ function gxkWorkAndExam(
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -2875,7 +2874,7 @@ function gxkWorkAndExam(
 /**
  * 校内学分课的作业
  */
-function xnkWork({ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions) {
+function xnkWork({ period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
@@ -2901,7 +2900,6 @@ function xnkWork({ answererWrappers, period, thread, answerSeparators }: CommonW
 		/** 默认搜题方法构造器 */
 		answerer: createCommonAnswerer({
 			titleTransform: (elements) => titleTransform(elements.title),
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -2980,10 +2978,7 @@ function xnkWork({ answererWrappers, period, thread, answerSeparators }: CommonW
 /**
  * 智慧课程的作业
  */
-function smartWork(
-	remotePage: RemotePage | undefined,
-	{ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions
-) {
+function smartWork(remotePage: RemotePage | undefined, { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
@@ -3019,7 +3014,6 @@ function smartWork(
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -3124,10 +3118,7 @@ function smartWork(
 	return worker;
 }
 
-function smartExam(
-	remotePage: RemotePage | undefined,
-	{ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions
-) {
+function smartExam(remotePage: RemotePage | undefined, { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
@@ -3164,7 +3155,6 @@ function smartExam(
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -3272,10 +3262,7 @@ function smartExam(
 	return worker;
 }
 
-function fusioncourseWork(
-	remotePage: RemotePage | undefined,
-	{ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions
-) {
+function fusioncourseWork(remotePage: RemotePage | undefined, { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 
 	CommonProject.scripts.workResults.methods.init({
@@ -3328,7 +3315,6 @@ function fusioncourseWork(
 					.filter(Boolean)
 					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim())
 					.join('\n'),
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -3406,10 +3392,7 @@ function fusioncourseWork(
 	return worker;
 }
 
-function hikeWork(
-	remotePage: RemotePage | undefined,
-	{ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions
-) {
+function hikeWork(remotePage: RemotePage | undefined, { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 
 	// 一题一题动态作答，结果逐题累积，标记为动态答题器以显示手动清空按钮
@@ -3437,7 +3420,6 @@ function hikeWork(
 		/** 默认搜题方法构造器 */
 		answerer: createCommonAnswerer({
 			titleTransform: (elements) => titleTransform(elements.title),
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -3524,10 +3506,7 @@ function hikeWork(
 	return worker;
 }
 
-function hikeHomework(
-	remotePage: RemotePage | undefined,
-	{ answererWrappers, period, thread, answerSeparators }: CommonWorkOptions
-) {
+function hikeHomework(remotePage: RemotePage | undefined, { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 	CommonProject.scripts.workResults.methods.init({
 		questionPositionSyncHandlerType: 'zhs-hike-answer-training'
@@ -3571,7 +3550,6 @@ function hikeHomework(
 					.filter(Boolean)
 					.map((o: HTMLElement) => extractTextWithImages(o).text.replace(/\s+/g, ' ').trim())
 					.join('\n'),
-			answererWrappers,
 			period
 		}),
 		work: {
@@ -3602,7 +3580,7 @@ function hikeHomework(
 					await $.sleep(200);
 				} else if (type === 'completion') {
 					const textarea = option.querySelector('.vditor-reset');
-					if (textarea) textarea.innerHTML = `<p data-block="0">${answer.trim()}</p>`;
+					textarea?.replaceChildren(h('p', answer.trim(), (paragraph) => paragraph.setAttribute('data-block', '0')));
 				}
 			}
 		},

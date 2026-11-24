@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { SimplifyWorkResult, splitAnswer, $, QuestionTypes } from '@ocsjs/core';
 import { $ui, h } from 'easy-us';
 import { createQuestionTitleExtra } from '../utils';
@@ -54,7 +55,7 @@ export class SearchInfosElement extends HTMLElement {
 	type: QuestionTypes;
 
 	connectedCallback() {
-		const question = transformImgLinkOfQuestion(this.question || '无');
+		const question = DOMPurify.sanitize(transformImgLinkOfQuestion(this.question || '无'));
 
 		const type_text = {
 			single: '单选题',
@@ -110,10 +111,10 @@ export class SearchInfosElement extends HTMLElement {
 						  []
 					).concat([
 						...info.results.map((ans) => {
-							const title = transformImgLinkOfQuestion(ans[0] || this.question || '无');
+							const title = DOMPurify.sanitize(transformImgLinkOfQuestion(ans[0] || this.question || '无'));
 							// 先按答案分隔符拆分原始答案，再逐段转换图片：
 							// 反之若先转换，img 标签的 src 中 & 被转义为 &amp;，其分号会被 splitAnswer 的 ';' 分隔符误切
-							const answer = splitAnswer(ans[1] || '无').map((a) => transformImgLinkOfQuestion(a));
+							const answer = splitAnswer(ans[1] || '无').map((a) => DOMPurify.sanitize(transformImgLinkOfQuestion(a)));
 							/** 返回的题目和原题完全匹配时，不再重复显示题目 */
 							const isSameQuestion = normalizeQuestion(ans[0] || '') === normalizeQuestion(this.question || '');
 							const extra_data = JSON.parse(JSON.stringify(ans[2] || {}));
@@ -130,9 +131,8 @@ export class SearchInfosElement extends HTMLElement {
 							if (extra_data.cache) {
 								extra_data.tags = extra_data.tags || [];
 								extra_data.tags.push({
-									text: '题库缓存',
-									title:
-										'此答案来自本地缓存，由在线题库搜索后保存在本地。\n- 清空缓存：请前往通用-全局设置-题库缓存功能-管理缓存\n- 关闭缓存：请前往通用-全局设置-题库缓存功能',
+									text: '答题缓存',
+									title: '此答案来自当前标签页的本地缓存。可在通用 → 全局设置 → 答题缓存中管理或关闭。',
 									color: 'gray'
 								});
 							}

@@ -586,7 +586,7 @@ export const ICourseProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+						'自动答题前请在「通用 → 全局设置」设置 DeepSeek API Key。',
 						'⚠️禁止同时开多个作业/考试页面。',
 						[
 							'⚠️由于MOOC限制、答题速度和搜题速度将默认调慢',
@@ -697,7 +697,7 @@ function waitForQuestion() {
 function workAndExam(
 	rp: RemotePage,
 	type: 'chapter-test' | 'work' | 'exam',
-	{ answererWrappers, redundanceWordsText, upload, stopSecondWhenFinish, answerSeparators }: CommonWorkOptions
+	{ redundanceWordsText, upload, stopSecondWhenFinish, answerSeparators }: CommonWorkOptions
 ) {
 	CommonProject.scripts.workResults.methods.init({
 		questionPositionSyncHandlerType: 'icourse'
@@ -748,7 +748,6 @@ function workAndExam(
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period: 5
 		}),
 		work: {
@@ -866,7 +865,7 @@ function workAndExam(
 
 function chapter_v2(
 	rp: RemotePage,
-	{ answererWrappers, redundanceWordsText, upload, stopSecondWhenFinish, answerSeparators }: CommonWorkOptions
+	{ redundanceWordsText, upload, stopSecondWhenFinish, answerSeparators }: CommonWorkOptions
 ) {
 	const titleTransform = (titles: (HTMLElement | undefined)[]): { text: string; images: string[] } => {
 		const images: string[] = [];
@@ -912,7 +911,6 @@ function chapter_v2(
 					images: optResults.flatMap((r: { images: string[] }) => r.images)
 				};
 			},
-			answererWrappers,
 			period: 5
 		}),
 		work: {

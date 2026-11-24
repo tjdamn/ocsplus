@@ -24,6 +24,7 @@ import { CXProject, definedProjects, ICourseProject, IcveMoocProject, YKTProject
 import { RenderScript } from '../render';
 import { SearchInfosElement } from '../elements/search.infos';
 import { $render } from '../utils/render';
+import { DEEPSEEK_API_URL } from '../utils/deepseek';
 
 const state = {
 	app: {
@@ -98,7 +99,14 @@ type RequestList = {
 /**
  * 题库缓存类型
  */
-type QuestionCache = { title: string; answer: string; from: string; homepage: string; ai?: boolean };
+type QuestionCache = {
+	title: string;
+	answer: string;
+	from: string;
+	homepage: string;
+	ai?: boolean;
+	deepSeekContext?: string;
+};
 
 /** 题库缓存单条大小上限：超过则不入库（异常巨型条目无缓存价值，且会放大 GM 全量序列化耗时） */
 const QUESTION_CACHE_ITEM_MAX_BYTES = 64 * 1024;
@@ -127,7 +135,11 @@ const QUESTION_CACHE_TAB_KEY = 'background.data.question-caches';
 function mergeQuestionCaches(caches: QuestionCache[], items: QuestionCache[]) {
 	for (const item of items) {
 		// 去重
-		if (caches.find((c) => c.title === item.title && c.answer === item.answer) === undefined) {
+		if (
+			caches.find(
+				(c) => c.title === item.title && c.deepSeekContext === item.deepSeekContext && c.answer === item.answer
+			) === undefined
+		) {
 			caches.unshift(item);
 		}
 	}
@@ -138,7 +150,8 @@ function mergeQuestionCaches(caches: QuestionCache[], items: QuestionCache[]) {
 	// 限制总字节数：从尾部（最旧）剔除直至达标
 	let totalBytes = 0;
 	for (let i = 0; i < caches.length; i++) {
-		totalBytes += byteLengthOf(caches[i].title) + byteLengthOf(caches[i].answer);
+		totalBytes +=
+			byteLengthOf(caches[i].title) + byteLengthOf(caches[i].answer) + byteLengthOf(caches[i].deepSeekContext ?? '');
 		if (totalBytes > QUESTION_CACHE_TOTAL_MAX_BYTES) {
 			caches.splice(i);
 			break;
@@ -147,14 +160,16 @@ function mergeQuestionCaches(caches: QuestionCache[], items: QuestionCache[]) {
 }
 
 /** 在缓存数组中查找匹配答案 */
-function findInQuestionCaches(caches: QuestionCache[], title: string): SearchInformation[] {
+function findInQuestionCaches(caches: QuestionCache[], title: string, deepSeekContext: string): SearchInformation[] {
 	const results: SearchInformation[] = [];
 	for (const cache of caches) {
-		if (cache.title.trim() === title.trim()) {
+		if (cache.title.trim() === title.trim() && cache.deepSeekContext === deepSeekContext) {
 			results.push({
 				name: cache.from,
 				homepage: cache.homepage,
-				results: [{ answer: cache.answer, question: cache.title, extra_data: { ai: cache.ai, cache: true } }]
+				results: [
+					{ answer: cache.answer, question: cache.title, extra_data: { ai: cache.ai, cache: true, deepSeekContext } }
+				]
 			});
 		}
 	}
@@ -336,7 +351,9 @@ export const BackgroundProject = Project.create({
 					addQuestionCache: async (...questionCacheItems: QuestionCache[]) => {
 						// 单条大小限制
 						const items = questionCacheItems.filter(
-							(item) => byteLengthOf(item.title) + byteLengthOf(item.answer) <= QUESTION_CACHE_ITEM_MAX_BYTES
+							(item) =>
+								byteLengthOf(item.title) + byteLengthOf(item.answer) + byteLengthOf(item.deepSeekContext ?? '') <=
+								QUESTION_CACHE_ITEM_MAX_BYTES
 						);
 						if (items.length === 0) {
 							return;
@@ -354,12 +371,17 @@ export const BackgroundProject = Project.create({
 										.map((i) =>
 											i.results
 												.filter((res) => res[1])
-												.map((res) => ({
-													title: r.question,
-													answer: res[1],
-													from: i.name.replace(/【题库缓存】/g, ''),
-													homepage: i.homepage || ''
-												}))
+												.map(([question, answer, data]) => {
+													const extra = data as Pick<QuestionCache, 'ai' | 'deepSeekContext'> | undefined;
+													return {
+														title: question || r.question,
+														answer,
+														from: i.name,
+														homepage: i.homepage || '',
+														ai: extra?.ai,
+														deepSeekContext: extra?.deepSeekContext
+													};
+												})
 												.flat()
 										)
 										.flat()
@@ -370,10 +392,12 @@ export const BackgroundProject = Project.create({
 					/**
 					 * 将题库缓存作为题库并进行题目搜索
 					 * @param title 题目
-					 * @param whenSearchEmpty 当搜索结果为空，或者题库缓存功能被关闭时执行的函数
+					 * @param deepSeekContext 题型、选项和图片设置组成的上下文
+					 * @param whenSearchEmpty 未命中缓存或关闭缓存时执行的函数
 					 */
 					searchAnswerInCaches: async (
 						title: string,
+						deepSeekContext: string,
 						whenSearchEmpty: () => SearchInformation[] | Promise<SearchInformation[]>
 					): Promise<SearchInformation[]> => {
 						if (CommonProject.scripts.settings.cfg.enableQuestionCaches === false) {
@@ -382,7 +406,7 @@ export const BackgroundProject = Project.create({
 
 						// tab 域存储：任意 frame 直接读取，无需 cors 路由
 						const caches: QuestionCache[] = (await $store.getTab(QUESTION_CACHE_TAB_KEY)) || [];
-						const results = findInQuestionCaches(caches, title);
+						const results = findInQuestionCaches(caches, title, deepSeekContext);
 
 						if (results.length === 0) {
 							return await whenSearchEmpty();
@@ -433,7 +457,7 @@ export const BackgroundProject = Project.create({
 							content: h('div', [
 								h('div', { className: 'notes card' }, [
 									$ui.notes([
-										'题库缓存是将题库的题目和答案保存在内存中，重复使用时直接读取缓存，不需要再次请求题库。',
+										'答题缓存保留当前标签页中的题目和答案，重复出现时可直接使用缓存。',
 										'默认最多存储 200 题（单条最大 64KB，总量最大 1MB，超限自动剔除最旧记录），当前页面关闭后会自动清除。'
 									])
 								]),
@@ -441,7 +465,7 @@ export const BackgroundProject = Project.create({
 									$ui.space(
 										[
 											countEl,
-											$ui.button('清空题库缓存', {}, (btn) => {
+											$ui.button('清空答题缓存', {}, (btn) => {
 												btn.onclick = async () => {
 													// tab 域存储：任意 frame 直接清空（同样跳过变更通知）
 													await $store.setTab(QUESTION_CACHE_TAB_KEY, [], { notify: false });
@@ -456,7 +480,7 @@ export const BackgroundProject = Project.create({
 
 								h(
 									'div',
-									questionCaches.length === 0 ? [h('div', { style: { textAlign: 'center' } }, '暂无题库缓存')] : list
+									questionCaches.length === 0 ? [h('div', { style: { textAlign: 'center' } }, '暂无答题缓存')] : list
 								)
 							])
 						});
@@ -1288,7 +1312,7 @@ export const BackgroundProject = Project.create({
 
 				// @ts-ignore
 				GM_xmlhttpRequest = (details: any) => {
-					if (this.cfg.enable) {
+					if (this.cfg.enable && details.url !== DEEPSEEK_API_URL) {
 						const id = getId();
 						const data = {
 							id: id,

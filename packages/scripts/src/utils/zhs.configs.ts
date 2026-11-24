@@ -52,7 +52,7 @@ export const studyNotes: Config = {
 /** 智慧树作业考试脚本统一使用提示 */
 export const workNotes: Config = {
 	defaultValue: $ui.notes([
-		'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+		'自动答题前请在「通用 → 全局设置」设置 DeepSeek API Key。',
 		'可以搭配 “通用-在线搜题” 一起使用。',
 		'⚠️ 如果没开始答题，请尝试刷新页面。',
 		'⚠️ 禁止一次性打开多个作业/考试页面。',

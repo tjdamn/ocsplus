@@ -1,4 +1,4 @@
-import { $, AnswererWrapper, WorkUploadType } from '@ocsjs/core';
+import { $, WorkUploadType } from '@ocsjs/core';
 import { $ui, $message, $modal, h } from 'easy-us';
 import { $console } from '../projects/background';
 import { MessageAttrs } from 'easy-us/lib/interfaces/custom-window';
@@ -7,7 +7,7 @@ export interface CommonWorkOptions {
 	period: number;
 	thread: number;
 	upload: WorkUploadType;
-	answererWrappers: AnswererWrapper[];
+	deepSeekConfigured: boolean;
 	stopSecondWhenFinish: number;
 	redundanceWordsText: string;
 	answerSeparators: string;

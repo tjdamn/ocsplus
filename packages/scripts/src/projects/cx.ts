@@ -14,10 +14,11 @@ import {
 import { crackFont, collectChars, decryptElements, extractFontFromStyle, loadRefTable } from '../utils/font-decrypt';
 import { $modal, h, $store, MessageElement, Project, Script, $el, $gm, $$el, $ui, cors, $message } from 'easy-us';
 
+import { isDeepSeekConfigured } from '../utils/deepseek';
 import { CommonEvents, CommonProject } from './common';
 import { workNotes, volume, playbackRate, dropdownStyle } from '../utils/configs';
 import {
-	answerWrapperEmptyWarning,
+	deepSeekKeyMissingWarning,
 	commonWork,
 	createCommonAnswerer,
 	extractTextWithImages,
@@ -370,8 +371,8 @@ export const CXProject = Project.create({
 				}
 			},
 			onrender({ panel }) {
-				if (!CommonProject.scripts.settings.cfg.answererWrappers?.length) {
-					answerWrapperEmptyWarning(10);
+				if (!isDeepSeekConfigured()) {
+					deepSeekKeyMissingWarning(10);
 				}
 
 				// 高倍速警告
@@ -1138,7 +1139,6 @@ export const CXProject = Project.create({
 function workOrExam(
 	type: 'work' | 'exam' = 'work',
 	{
-		answererWrappers,
 		period,
 		thread,
 		redundanceWordsText,
@@ -1247,7 +1247,6 @@ function workOrExam(
 					images: optResults.flatMap((r) => r.images)
 				};
 			},
-			answererWrappers,
 			period
 		}),
 
@@ -1276,7 +1275,7 @@ function workOrExam(
 							text.value = answer;
 						}
 						if (textareaFrame?.contentDocument) {
-							textareaFrame.contentDocument.body.innerHTML = answer;
+							textareaFrame.contentDocument.body.innerText = answer;
 						}
 						if (option?.parentElement?.parentElement) {
 							/** 如果存在保存按钮则点击 */
@@ -1437,7 +1436,6 @@ function mobilelearn(opts: CommonWorkOptions) {
 				}
 				return '';
 			},
-			answererWrappers: opts.answererWrappers,
 			period: opts.period
 		}),
 
@@ -1466,7 +1464,7 @@ function mobilelearn(opts: CommonWorkOptions) {
 						text.value = answer;
 					}
 					if (textareaFrame?.contentDocument) {
-						textareaFrame.contentDocument.body.innerHTML = answer;
+						textareaFrame.contentDocument.body.innerText = answer;
 					}
 					if (option?.parentElement?.parentElement) {
 						/** 如果存在保存按钮则点击 */
@@ -2094,8 +2092,8 @@ function searchJob(opts: typeof CXProject.scripts.study.cfg, searchedJobs: Job[]
 								(work_type === 'not-job' && CommonProject.scripts.settings.cfg['work-when-no-job'])
 							) {
 								const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
-								if (workOptions.answererWrappers === undefined || workOptions.answererWrappers.length === 0) {
-									answerWrapperEmptyWarning(0);
+								if (!workOptions.deepSeekConfigured) {
+									deepSeekKeyMissingWarning(0);
 								} else {
 									func = () => {
 										$msgwc.info(`开始答题 : ` + jobName);
@@ -2331,7 +2329,7 @@ const JobRunner = {
 	async chapter(
 		frame: HTMLIFrameElement,
 		{
-			answererWrappers,
+			deepSeekConfigured,
 			period,
 			upload,
 			thread,
@@ -2340,8 +2338,8 @@ const JobRunner = {
 			answerSeparators
 		}: CommonWorkOptions
 	) {
-		if (answererWrappers === undefined || answererWrappers.length === 0) {
-			return answerWrapperEmptyWarning(0);
+		if (!deepSeekConfigured) {
+			return deepSeekKeyMissingWarning(0);
 		}
 
 		const visual_state = BackgroundProject.scripts.render.cfg.visual;
@@ -2428,7 +2426,6 @@ const JobRunner = {
 					const optResults = (ctx.elements.options ?? []).filter(Boolean).map((o: any) => extractTextWithImages(o));
 					return { text: optResults.map((r) => r.text).join('\n'), images: optResults.flatMap((r) => r.images) };
 				},
-				answererWrappers,
 				period
 			}),
 
@@ -2459,7 +2456,7 @@ const JobRunner = {
 								text.value = answer;
 							}
 							if (textareaFrame?.contentDocument) {
-								textareaFrame.contentDocument.body.innerHTML = answer;
+								textareaFrame.contentDocument.body.innerText = answer;
 							}
 							if (option?.parentElement?.parentElement) {
 								/** 如果存在保存按钮则点击 */

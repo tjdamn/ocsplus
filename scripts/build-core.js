@@ -6,7 +6,6 @@ const util = require('util');
 const { version } = require('../package.json');
 /** @type {(...args: any[])=> Promise<void>} */
 const execOut = util.promisify(require('./utils').execOut);
-const { createUserScript, createMetaFile } = require('../packages/utils');
 const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
@@ -23,14 +22,16 @@ function cleanOutput() {
 }
 
 async function testResolver() {
-	await execOut('tsx ../tests/resolver.test.ts');
+	await execOut('node --import tsx ../tests/resolver.test.ts');
 }
 
 async function buildPackages() {
+	const env = { ...process.env, VITE_BUILD_PATH: process.env.VITE_BUILD_PATH || distResolvedPath };
+	await execOut('tsc', { cwd: '../packages/utils' });
 	await execOut('tsc', { cwd: '../packages/core' });
-	await execOut('vite build', { cwd: '../packages/core' });
+	await execOut('vite build', { cwd: '../packages/core', env });
 	await execOut('tsc', { cwd: '../packages/scripts' });
-	await execOut('vite build', { cwd: '../packages/scripts' });
+	await execOut('vite build', { cwd: '../packages/scripts', env });
 }
 
 const CSS_PATH = path.join(__dirname, '../packages/scripts/assets/css/style.css');
@@ -74,7 +75,9 @@ function createOptions(ocs) {
 			gap: '\t'.repeat(4)
 		},
 		metadata: {
-			name: 'OCS 网课助手',
+			name: 'OCS 网课助手（DeepSeek 本地版）',
+			updateURL: 'none',
+			downloadURL: 'none',
 			version: version,
 			description: [
 				'OCS(online-course-script) 网课助手，官网 https://docs.ocsjs.com ，专注于帮助大学生从网课中释放出来',
@@ -89,6 +92,7 @@ function createOptions(ocs) {
 			source: 'https://github.com/ocsjs/ocsjs',
 			icon: 'https://cdn.ocsjs.com/logo.png',
 			connect: [
+				'api.deepseek.com',
 				'enncy.cn',
 				'icodef.com',
 				'ocsjs.com',
@@ -130,6 +134,7 @@ function createOptions(ocs) {
  * 因此 entry 文件改动后必须重新执行本函数，Tampermonkey 中才能拿到最新入口代码。
  */
 async function createDevUserScript() {
+	const { createUserScript } = require('../packages/utils');
 	require('browser-env')();
 	// @ts-ignore
 	globalThis.unsafeWindow = {};
@@ -150,6 +155,7 @@ async function createDevUserScript() {
 }
 
 async function createUserJs() {
+	const { createUserScript, createMetaFile } = require('../packages/utils');
 	/** 模拟浏览器环境 */
 	require('browser-env')();
 

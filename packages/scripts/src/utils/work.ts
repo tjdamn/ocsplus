@@ -2,44 +2,24 @@ import {
 	SimplifyWorkResult,
 	WorkerEvents,
 	WorkResult,
-	defaultAnswerWrapperHandler,
-	AnswererWrapper,
 	SearchInformation,
 	WorkContext,
+	isJudgementOptions,
 	$
 } from '@ocsjs/core';
-import { $ui, $message, MessageElement, Script, h, CommonEventEmitter, cors, $elements } from 'easy-us';
+import { $ui, $message, MessageElement, Script, h, CommonEventEmitter, cors } from 'easy-us';
 import { CommonEvents, CommonProject } from '../projects/common';
-import { $console, BackgroundProject } from '../projects/background';
+import { BackgroundProject } from '../projects/background';
 import { CommonWorkOptions } from '.';
 import { createIframeControlSession } from './iframe-control-bar';
-import {
-	buildAnswererEnv,
-	createAnswererWrappersSignature,
-	createImageSuggestion,
-	imageToBase64,
-	ImageSuggestionResult,
-	isAnswererWrappersSupportImageOptimize
-} from './answerer-env';
-
-// 重新导出，保持对外 API 不变（common.ts / exploration.ts 等仍从本文件导入）
-export {
-	buildAnswererEnv,
-	createAnswererWrappersSignature,
-	createImageSuggestion,
-	imageToBase64,
-	isAnswererWrappersSupportImageOptimize
-};
-export type { ImageSuggestionResult };
-// extractTextWithImages / ExtractTextOptions 已在下方直接 export
+import { buildAnswererEnv, IMAGE_URL_REGEX } from './answerer-env';
+import { isDeepSeekConfigured, requestDeepSeekAnswer } from './deepseek';
 
 /** commonWork 单次调用的可变状态（render 处理器通过绑定引用读取，重复调用时替换引用避免串台） */
 interface CommonWorkState {
 	worker: CommonEventEmitter<WorkerEvents> | undefined;
 	/** 是否已经按下了开始按钮 */
 	startBtnPressed: boolean;
-	/** 是否题库配置检查失败 */
-	checkFailed: boolean;
 	/** 是否正在运行 */
 	running: boolean;
 	/** 当前控制面板元素（start 后为 [暂停|重新答题] 运行态面板） */
@@ -93,22 +73,10 @@ export function commonWork(options: {
 	// worker 工作状态统一通过 CommonEvents.emitWorkerStateChange 广播：
 	// 结果面板按钮显隐与搜题气泡均以该事件为唯一数据源
 
-	CommonProject.scripts.settings.on('answerer-wrapper-change', async (curr, prev) => {
-		$console.log('answerer-wrapper-change curr.length', curr.length);
-		if (curr.length > 0) {
-			state.checkFailed = false;
-			state.startBtnPressed = false;
-			await closeAnswerWrapperEmptyWarning();
-			start();
-		}
-	});
-	let workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
-
 	/** 本次调用的可变状态（实例隔离，不与其它 commonWork 调用共享） */
 	const state: CommonWorkState = {
 		worker: undefined,
 		startBtnPressed: false,
-		checkFailed: false,
 		running: false,
 		controlPanel: null,
 		paused: false,
@@ -146,7 +114,7 @@ export function commonWork(options: {
 				if (checkMessage instanceof MessageElement) {
 					checkMessage.remove();
 				}
-				await closeAnswerWrapperEmptyWarning();
+				await closeDeepSeekKeyMissingWarning();
 				start();
 			},
 			onRestart: async () => {
@@ -178,7 +146,7 @@ export function commonWork(options: {
 
 	/** 渲染面板内容（render 事件与 start() 共用，保证两处内容一致） */
 	const renderPanelBody = () => {
-		const gotoSettingsBtn = $ui.button('👉 前往设置题库配置', {
+		const gotoSettingsBtn = $ui.button('设置 DeepSeek API Key', {
 			className: 'base-style-button',
 			style: { flex: '1', padding: '4px' }
 		});
@@ -197,7 +165,7 @@ export function commonWork(options: {
 				'div',
 				{ style: { marginTop: '12px' } },
 
-				state.checkFailed
+				!state.running && !isDeepSeekConfigured()
 					? [h('hr'), h('div', { style: { display: 'flex' } }, [gotoSettingsBtn])]
 					: [
 							h('hr'),
@@ -218,10 +186,9 @@ export function commonWork(options: {
 	let checkMessage: MessageElement | Promise<void> | undefined;
 	if (iframeControl) {
 		// 子 iframe 操控模式：$message 经 cors 转发到顶层时无法执行交互回调（取消/倒计时结束），
-		// 不能使用交互式预检；但自动答题必须触发，简化为直接校验题库配置 + 延迟自动开始
-		if (workOptions.answererWrappers.length === 0) {
-			state.checkFailed = true;
-			answerWrapperEmptyWarning(0);
+		// 不能使用交互式预检；但自动答题必须触发，简化为直接校验 DeepSeek API Key + 延迟自动开始
+		if (!isDeepSeekConfigured()) {
+			deepSeekKeyMissingWarning(0);
 		} else {
 			const delay = options.start_delay_seconds ?? 5;
 			$message.info(`将在 ${delay} 秒后自动答题`);
@@ -234,15 +201,11 @@ export function commonWork(options: {
 		}
 	} else {
 		/**
-		 * 检查题库是否配置，并询问是否开始答题
+		 * 检查 DeepSeek API Key，并询问是否开始答题
 		 */
 		checkMessage = workPreCheckMessage({
 			onrun: () => state.startBtnPressed === false && start(),
-			onclose: (_, closedMsg) => (checkMessage = closedMsg),
-			onNoAnswererWrappers: () => {
-				state.checkFailed = true;
-			},
-			...workOptions,
+			onclose: (closedMsg) => (checkMessage = closedMsg),
 			start_delay_seconds: options.start_delay_seconds
 		});
 	}
@@ -252,11 +215,11 @@ export function commonWork(options: {
 		if (state.running) {
 			return;
 		}
-		if (state.checkFailed) {
-			return answerWrapperEmptyWarning(0);
+		const workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
+		if (!workOptions.deepSeekConfigured) {
+			renderPanelBody();
+			return deepSeekKeyMissingWarning(0);
 		}
-		// 重新获取题库配置（防止题库变化事件触发后无法获取到最新题库配置）
-		workOptions = CommonProject.scripts.settings.methods.getWorkOptions();
 		await options.beforeRunning?.();
 		state.running = true;
 		// 运行答题
@@ -545,29 +508,25 @@ export function removeRedundantWords(str: string, words: string[]) {
 	return str;
 }
 
-let answererWrapperUnsetMessage: MessageElement | undefined;
+let deepSeekKeyMissingMessage: MessageElement | undefined;
 
-export const answerWrapperEmptyWarning = cors.defineTopFunction((duration: number) => {
+export const deepSeekKeyMissingWarning = cors.defineTopFunction((duration: number) => {
 	const setting = h('button', { className: 'base-style-button-secondary' }, '通用-全局设置');
 	setting.onclick = () => {
 		BackgroundProject.scripts.render.methods.normal();
 		BackgroundProject.scripts.render.methods.pin(CommonProject.scripts.settings);
-		setTimeout(() => {
-			$elements.root?.querySelector<HTMLElement>('[value="点击配置"]')?.click();
-		}, 500);
 	};
 
-	answererWrapperUnsetMessage?.remove();
-	answererWrapperUnsetMessage = $message.warn({
-		content: h('span', {}, ['你还没设置题库，无法自动答题，请切换到 ', setting, ' 页面进行配置。']),
+	deepSeekKeyMissingMessage?.remove();
+	deepSeekKeyMissingMessage = $message.warn({
+		content: h('span', {}, ['请在 ', setting, ' 设置 DeepSeek API Key，再开始自动答题。']),
 		duration: duration
 	});
 });
 
-export const closeAnswerWrapperEmptyWarning = cors.defineTopFunction(() => {
-	console.log(answererWrapperUnsetMessage);
-	answererWrapperUnsetMessage?.remove();
-	answererWrapperUnsetMessage = undefined;
+export const closeDeepSeekKeyMissingWarning = cors.defineTopFunction(() => {
+	deepSeekKeyMissingMessage?.remove();
+	deepSeekKeyMissingMessage = undefined;
 });
 
 /**
@@ -575,13 +534,11 @@ export const closeAnswerWrapperEmptyWarning = cors.defineTopFunction(() => {
  * @param options.titleTransform 标题转换函数，接收 (elements, ctx)，返回字符串标题
  * @param options.optionsTransform 选项转换函数（可选），接收 (elements, ctx)，返回选项文本字符串；
  *   默认取 ctx.elements.options 的 innerText 拼接
- * @param options.answererWrappers 题库配置
  * @param options.period 搜题间隔（秒），默认 3
  */
 export function createCommonAnswerer(options: {
 	titleTransform: (elements: any, ctx: WorkContext<any>) => string | { text: string; images?: string[] };
 	optionsTransform?: (elements: any, ctx: WorkContext<any>) => string | { text: string; images?: string[] };
-	answererWrappers: AnswererWrapper[];
 	period?: number;
 }) {
 	const normalize = (
@@ -590,8 +547,6 @@ export function createCommonAnswerer(options: {
 		if (v == null) return { text: '' };
 		return typeof v === 'string' ? { text: v } : v;
 	};
-	/** 题目文本中的图片 URL 快速检测（仅用于降级提示，非精确提取；无 /g 标志，test 调用安全） */
-	const QUESTION_IMAGE_REGEX = /https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|bmp|webp|svg)/i;
 	/** 降级提示仅每次会话提示一次，避免逐题刷屏 */
 	let imageOptimizeOffWarned = false;
 	let imageConvertFailWarned = false;
@@ -604,87 +559,71 @@ export function createCommonAnswerer(options: {
 		}
 		const titleImages = titleResult.images;
 
-		return await BackgroundProject.scripts.data.methods.searchAnswerInCaches(title, async () => {
+		const optResult = normalize(
+			options.optionsTransform
+				? options.optionsTransform(elements, ctx)
+				: (ctx.elements.options ?? [])
+						.filter((option): option is HTMLElement => Boolean(option))
+						.map((option) => option.innerText)
+						.join('\n')
+		);
+		const blankCount = (ctx.elements.textareas ?? ctx.elements.options)?.filter(Boolean).length;
+		const settings = CommonProject.scripts.settings.cfg;
+		const type =
+			(ctx.type === 'single' || !ctx.type) &&
+			isJudgementOptions(
+				optResult.text
+					.split('\n')
+					.map((option) => option.trim())
+					.filter(Boolean)
+			)
+				? 'judgement'
+				: ctx.type;
+		const cacheContext = JSON.stringify([type, optResult.text, blankCount, settings.imageOptimize]);
+
+		return BackgroundProject.scripts.data.methods.searchAnswerInCaches(title, cacheContext, async () => {
 			await $.sleep((options.period ?? 3) * 1000);
-			const optResult = normalize(
-				options.optionsTransform
-					? options.optionsTransform(elements, ctx)
-					: (ctx.elements.options ?? [])
-							.filter(Boolean)
-							.map((o: HTMLElement | undefined) => o!.innerText)
-							.join('\n')
-			);
 			const questionHasImages =
 				(titleImages?.length ?? 0) + (optResult.images?.length ?? 0) > 0 ||
-				QUESTION_IMAGE_REGEX.test(title) ||
-				QUESTION_IMAGE_REGEX.test(optResult.text);
-			// 题目含图片但未开启图片题优化：此前为静默降级（原始 URL 发出后大概率搜不到），显式提示用户开启
-			if (questionHasImages && !CommonProject.scripts.settings.cfg.imageOptimize && !imageOptimizeOffWarned) {
+				[title, optResult.text].some((text) => text.search(IMAGE_URL_REGEX) !== -1);
+			if (questionHasImages && !settings.imageOptimize && !imageOptimizeOffWarned) {
 				imageOptimizeOffWarned = true;
 				$message.warn({
-					content: '检测到题目包含图片，但未开启「图片题优化」（通用-全局设置-高级设置中开启），图片题将无法搜题。',
+					content: '题目包含图片，可在「通用 → 全局设置 → 高级设置」开启图片题优化。',
 					duration: 10
 				});
 			}
 			const { env, imageUrls } = await buildAnswererEnv({
-				type: ctx.type,
+				type,
 				title,
 				options: optResult.text,
 				titleImages,
 				optionsImages: optResult.images,
-				enableImageOptimize: CommonProject.scripts.settings.cfg.imageOptimize
+				enableImageOptimize: settings.imageOptimize
 			});
-			// 已开启优化但全部图片转换失败（CORS/防盗链极端情况）：此前静默回退普通题，显式提示
-			if (
-				questionHasImages &&
-				CommonProject.scripts.settings.cfg.imageOptimize &&
-				imageUrls.length === 0 &&
-				!imageConvertFailWarned
-			) {
+			if (questionHasImages && settings.imageOptimize && imageUrls.length === 0 && !imageConvertFailWarned) {
 				imageConvertFailWarned = true;
 				$message.warn({
-					content: '题目图片下载或转换失败（可能跨域受限），本题将按普通题目搜索，图片题可能无法匹配。',
+					content: '题目图片下载或转换失败。本题只向 DeepSeek 发送文字。',
 					duration: 10
 				});
 			}
-			const searchInfos = await defaultAnswerWrapperHandler(options.answererWrappers, env);
-			// 将 AI 答案中的 [图片N] 占位符还原为对应图片 URL，使选项匹配可以命中图片选项。
-			// imageUrls 与实际上传的 env.images 严格同序（createImageSuggestion 单一数据源，含转换失败过滤）。
-			// 覆盖服务端未还原的场景：标题图占位符 / 选项行数不对齐 / 第三方题库。
-			if (imageUrls.length) {
-				for (const info of searchInfos) {
-					for (const res of info.results) {
-						if (res.answer && res.answer.includes('[图片')) {
-							res.answer = res.answer.replace(/\[图片(\d+)\]/g, (m, n) => imageUrls[Number(n) - 1] ?? m);
-						}
-					}
-				}
-			}
-			return searchInfos;
+			return requestDeepSeekAnswer(env, imageUrls, settings.answerWrapperHandlerTimeout, {
+				blankCount,
+				cacheContext
+			});
 		});
 	};
 }
 
 /** 创建答题预处理信息 */
-function workPreCheckMessage(
-	options: CommonWorkOptions & {
-		start_delay_seconds?: number;
-		onrun: (opts: CommonWorkOptions) => void;
-		/**
-		 * 当没有题库配置时的回调
-		 */
-		onNoAnswererWrappers?: (opts: CommonWorkOptions) => void;
-		/**
-		 * 手动关闭时的回调
-		 */
-		onclose?: (opts: CommonWorkOptions, closedMessage: MessageElement) => void;
-	}
-) {
-	const { onrun, onNoAnswererWrappers, onclose, ...opts } = options;
-
-	if (opts.answererWrappers.length === 0) {
-		onNoAnswererWrappers?.(opts);
-		return answerWrapperEmptyWarning(0);
+function workPreCheckMessage(options: {
+	start_delay_seconds?: number;
+	onrun: () => void;
+	onclose: (closedMessage: MessageElement) => void;
+}) {
+	if (!isDeepSeekConfigured()) {
+		return deepSeekKeyMissingWarning(0);
 	} else {
 		options.start_delay_seconds = options.start_delay_seconds ?? 5;
 		return $message.info({
@@ -695,7 +634,7 @@ function workPreCheckMessage(
 					name: '点击取消',
 					delay: options.start_delay_seconds,
 					ondefault: (span) => {
-						onrun(opts);
+						options.onrun();
 					},
 					onprevent(span) {
 						const closedMessage = $message.warn({
@@ -703,7 +642,7 @@ function workPreCheckMessage(
 							duration: 0
 						});
 						if (closedMessage) {
-							onclose?.(opts, closedMessage);
+							options.onclose(closedMessage);
 						}
 					}
 				})

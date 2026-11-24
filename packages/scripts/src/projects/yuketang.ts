@@ -136,13 +136,13 @@ export const YKTProject = Project.create({
 						'请点击任意小节，脚本会自动运行，并自动下一节。',
 						'修改音量、倍速后请刷新页面使设置生效。',
 						'课件/PPT 等任务请手动进入触发自动阅读',
-						['遇到作业任务点时可自动搜题作答', '（需在 通用-全局设置 中配置题库）。']
+						['遇到作业任务点时可自动搜题作答', '（需在「通用 → 全局设置」设置 DeepSeek API Key）。']
 					]).outerHTML
 				},
 				restudy: restudy,
 				problemWork: {
 					label: '作业自动答题',
-					attrs: { type: 'checkbox', title: '遇到作业任务点时自动搜题作答并按设置提交（需配置题库）' },
+					attrs: { type: 'checkbox', title: '遇到作业任务点时自动搜题作答并按设置提交（需设置 DeepSeek API Key）' },
 					defaultValue: true
 				},
 				discussMode: {
@@ -826,13 +826,7 @@ function extractYktTitleText(el: HTMLElement): string {
 	return extractTextWithImages(clone).text;
 }
 
-function createYktAnswerWorker({
-	answererWrappers,
-	period,
-	thread,
-	redundanceWordsText,
-	answerSeparators
-}: CommonWorkOptions) {
+function createYktAnswerWorker({ period, thread, redundanceWordsText, answerSeparators }: CommonWorkOptions) {
 	const redundanceWords = redundanceWordsText.split('\n').filter(Boolean);
 	const titleTransform = (titles: (HTMLElement | undefined)[]) =>
 		titles
@@ -918,7 +912,6 @@ function createYktAnswerWorker({
 				}
 				return (elements.options ?? []).map((o: HTMLElement) => optionText(o)).join('\n');
 			},
-			answererWrappers,
 			period
 		}),
 		work: async (ctx) => {
@@ -1410,7 +1403,6 @@ function examination(opts: CommonWorkOptions) {
 				}
 				return '';
 			},
-			answererWrappers: opts.answererWrappers,
 			period: opts.period
 		}),
 

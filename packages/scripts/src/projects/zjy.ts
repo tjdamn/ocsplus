@@ -335,7 +335,7 @@ export const ZJYProject = Project.create({
 			configs: {
 				notes: {
 					defaultValue: $ui.notes([
-						'自动答题前请在 “通用-全局设置” 中设置题库配置。',
+						'自动答题前请在「通用 → 全局设置」设置 DeepSeek API Key。',
 						'可以搭配 “通用-在线搜题” 一起使用。',
 						'请手动进入作业考试页面才能使用自动答题。'
 					]).outerHTML
@@ -642,7 +642,7 @@ async function waitForQuestions() {
 	);
 }
 
-function workOrExam(type: 'work' | 'exam', { answererWrappers, period, thread, answerSeparators }: CommonWorkOptions) {
+function workOrExam(type: 'work' | 'exam', { period, thread, answerSeparators }: CommonWorkOptions) {
 	$message.info({ content: '开始作业' });
 	CommonProject.scripts.workResults.methods.init({
 		questionPositionSyncHandlerType: 'zjy'
@@ -666,7 +666,6 @@ function workOrExam(type: 'work' | 'exam', { answererWrappers, period, thread, a
 		/** 默认搜题方法构造器 */
 		answerer: createCommonAnswerer({
 			titleTransform: (elements, _ctx) => titleTransform(elements.title),
-			answererWrappers,
 			period
 		}),
 		work: {
